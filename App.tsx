@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { generateBackgroundImage, generatePromptFromImage } from './services/geminiService';
+import { composeStoryImage, generatePromptFromImage } from './services/geminiService';
 import { UploadIcon, SparklesIcon, DownloadIcon, RefreshIcon, LinkIcon, SpinnerIcon } from './components/Icons';
 
 const loadingMessages = [
-    "Convocando espíritos criativos...",
-    "Pintando pixels na tela...",
-    "Misturando cores digitais...",
-    "Quase lá, a obra-prima está tomando forma...",
-    "Finalizando os detalhes...",
+    "Convocando diretores de arte...",
+    "Ajustando a iluminação do estúdio virtual...",
+    "Compondo a cena perfeita...",
+    "Adicionando sombras e reflexos realistas...",
+    "Finalizando os detalhes da sua obra-prima...",
 ];
 
 const defaultPrompt = 'Um fundo vibrante e abstrato com toques de dourado e azul-petróleo, criando uma sensação luxuosa e moderna para a exibição de um produto.';
@@ -59,7 +59,6 @@ const urlToDataUrl = (url: string): Promise<string> => {
 
 const App: React.FC = () => {
     const [productImage, setProductImage] = useState<string | null>(null);
-    const [backgroundImage, setBackgroundImage] = useState<string | null>(null);
     const [prompt, setPrompt] = useState<string>(defaultPrompt);
     const [isLoading, setIsLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
@@ -69,7 +68,6 @@ const App: React.FC = () => {
     const [isLoadingUrl, setIsLoadingUrl] = useState<boolean>(false);
     const [isGeneratingPrompt, setIsGeneratingPrompt] = useState<boolean>(false);
     
-    const canvasRef = useRef<HTMLCanvasElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
@@ -89,54 +87,6 @@ const App: React.FC = () => {
         };
     }, [isLoading]);
     
-    const drawCanvas = useCallback(() => {
-        if (!productImage || !backgroundImage || !canvasRef.current) return;
-
-        const canvas = canvasRef.current;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
-
-        const bgImg = new Image();
-        bgImg.crossOrigin = 'anonymous';
-        const prodImg = new Image();
-        prodImg.crossOrigin = 'anonymous';
-
-        let bgLoaded = false;
-        let prodLoaded = false;
-
-        const draw = () => {
-            if (!bgLoaded || !prodLoaded) return;
-            
-            canvas.width = 1080;
-            canvas.height = 1920;
-
-            ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
-
-            const maxProdWidth = canvas.width * 0.75;
-            const maxProdHeight = canvas.height * 0.75;
-            
-            let prodWidth = prodImg.width;
-            let prodHeight = prodImg.height;
-
-            const ratio = Math.min(maxProdWidth / prodWidth, maxProdHeight / prodHeight);
-            prodWidth *= ratio;
-            prodHeight *= ratio;
-
-            const x = (canvas.width - prodWidth) / 2;
-            const y = (canvas.height - prodHeight) / 2;
-
-            ctx.drawImage(prodImg, x, y, prodWidth, prodHeight);
-            
-            setFinalImageURI(canvas.toDataURL('image/png'));
-        };
-
-        bgImg.onload = () => { bgLoaded = true; draw(); };
-        prodImg.onload = () => { prodLoaded = true; draw(); };
-        
-        bgImg.src = backgroundImage;
-        prodImg.src = productImage;
-
-    }, [productImage, backgroundImage]);
     
     const handleAnalyzeImage = useCallback(async () => {
         if (!productImage) return;
@@ -154,14 +104,10 @@ const App: React.FC = () => {
     }, [productImage]);
 
     useEffect(() => {
-        if (productImage) {
+        if (productImage && !finalImageURI) { // Only analyze if there's no final image yet
             handleAnalyzeImage();
         }
-    }, [productImage, handleAnalyzeImage]);
-
-    useEffect(() => {
-        drawCanvas();
-    }, [drawCanvas]);
+    }, [productImage, finalImageURI, handleAnalyzeImage]);
 
 
     const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -197,14 +143,13 @@ const App: React.FC = () => {
         if (!prompt || !productImage) return;
         setIsLoading(true);
         setError(null);
-        setBackgroundImage(null);
         setFinalImageURI(null);
         try {
-            const generatedImageBase64 = await generateBackgroundImage(prompt);
-            setBackgroundImage(`data:image/jpeg;base64,${generatedImageBase64}`);
+            const finalImage = await composeStoryImage(productImage, prompt);
+            setFinalImageURI(finalImage);
         } catch (e) {
             console.error(e);
-            setError('Falha ao gerar a imagem. Por favor, tente novamente.');
+            setError('Falha ao compor a imagem profissional. Por favor, tente novamente.');
         } finally {
             setIsLoading(false);
         }
@@ -214,7 +159,7 @@ const App: React.FC = () => {
         if (!finalImageURI) return;
         const link = document.createElement('a');
         link.href = finalImageURI;
-        link.download = 'imagem-story.png';
+        link.download = 'story-profissional.png';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -222,7 +167,6 @@ const App: React.FC = () => {
 
     const handleReset = () => {
         setProductImage(null);
-        setBackgroundImage(null);
         setFinalImageURI(null);
         setError(null);
         setIsLoading(false);
@@ -310,7 +254,7 @@ const App: React.FC = () => {
                      {/* Step 2: Describe Background */}
                     <div className="space-y-2">
                         <div className="flex justify-between items-center">
-                            <label htmlFor="prompt" className="text-lg font-semibold text-gray-300">Passo 2: Descreva o Fundo</label>
+                            <label htmlFor="prompt" className="text-lg font-semibold text-gray-300">Passo 2: Descreva a Cena</label>
                             <button
                                 onClick={handleAnalyzeImage}
                                 disabled={!productImage || isGeneratingPrompt || isLoading}
@@ -322,17 +266,15 @@ const App: React.FC = () => {
                             </button>
                         </div>
                         <div className="relative">
-                            <div
-                                id="prompt-display"
-                                className={`w-full min-h-[7rem] p-3 bg-gray-700 border border-gray-600 rounded-lg overflow-y-auto text-gray-300 transition-colors flex items-center ${!productImage ? 'opacity-50' : ''}`}
-                                aria-live="polite"
-                            >
-                                {isGeneratingPrompt ? (
-                                    <span className="text-gray-400 italic">Analisando imagem para criar a descrição...</span>
-                                ) : (
-                                    <span>{prompt}</span>
-                                )}
-                            </div>
+                             <textarea
+                                id="prompt"
+                                value={prompt}
+                                onChange={(e) => setPrompt(e.target.value)}
+                                rows={4}
+                                placeholder="Descreva o fundo que você imagina..."
+                                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 transition-colors disabled:opacity-50"
+                                disabled={!productImage || isLoading || isGeneratingPrompt}
+                             />
                             {isGeneratingPrompt && <SpinnerIcon className="absolute top-3 right-3 w-5 h-5 text-gray-400" />}
                         </div>
                     </div>
@@ -345,7 +287,7 @@ const App: React.FC = () => {
                             className="w-full flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-bold py-3 px-6 rounded-lg hover:from-purple-600 hover:to-pink-600 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105"
                         >
                             <SparklesIcon className="w-6 h-6"/>
-                            {isLoading ? 'Gerando...' : 'Gerar Imagem do Story'}
+                            {isLoading ? 'Compondo...' : 'Criar Story Profissional'}
                         </button>
                     </div>
                     {productImage && (
@@ -371,7 +313,7 @@ const App: React.FC = () => {
 
                 {/* Preview Panel */}
                 <div className="bg-gray-800 p-4 rounded-2xl shadow-lg flex items-center justify-center min-h-[60vh] lg:min-h-0">
-                    <div className="w-full max-w-[360px] aspect-[9/16] bg-gray-900 rounded-xl flex items-center justify-center overflow-hidden">
+                    <div className="w-full max-w-[360px] aspect-[9/16] bg-gray-900 rounded-xl flex items-center justify-center overflow-hidden relative">
                         {(isLoading || isLoadingUrl) && (
                             <div className="text-center p-4">
                                 <SparklesIcon className="w-12 h-12 text-purple-400 animate-pulse mx-auto"/>
@@ -383,15 +325,13 @@ const App: React.FC = () => {
                         
                         {!isLoading && !isLoadingUrl && !finalImageURI && !error && (
                             <div className="text-center text-gray-500 p-4">
-                                <p>Sua imagem de story gerada aparecerá aqui.</p>
+                                <p>Sua imagem de story profissional aparecerá aqui.</p>
                             </div>
                         )}
 
                         {finalImageURI && !isLoading && !isLoadingUrl && (
-                            <img src={finalImageURI} alt="Story gerado" className="w-full h-full object-contain" />
+                            <img src={finalImageURI} alt="Story gerado profissionalmente" className="w-full h-full object-cover" />
                         )}
-
-                        <canvas ref={canvasRef} className="hidden"></canvas>
                     </div>
                 </div>
             </main>
